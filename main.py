@@ -3,12 +3,12 @@ os.environ["COQUI_TOS_AGREED"] = "1"
 import re
 import subprocess
 import torch
+import requests
 import yaml
 import numpy as np
 import time
 import warnings
 
-from playwright.sync_api import sync_playwright
 from socket import AF_INET, socket, SOCK_STREAM
 from threading import Thread
 
@@ -24,13 +24,8 @@ def log(x):
         
 #File config
 GAME_PATH = CONFIG["GAME_PATH"]
-WEBUI_PATH = CONFIG["WEBUI_PATH"]
-ST_PATH = CONFIG.get("ST_PATH", "")
-BACKEND_TYPE = CONFIG.get("BACKEND_TYPE", "Text-gen-webui")
 USE_TTS = CONFIG["USE_TTS"]
 LAUNCH_YOURSELF = CONFIG["LAUNCH_YOURSELF"]
-LAUNCH_YOURSELF_WEBUI = CONFIG["LAUNCH_YOURSELF_WEBUI"]
-LAUNCH_YOURSELF_ST = CONFIG.get("LAUNCH_YOURSELF_ST", False)
 USE_ACTIONS = CONFIG["USE_ACTIONS"]
 USE_EMOTIONS = CONFIG.get("USE_EMOTIONS", True) # Added emotion flag
 TTS_MODEL = CONFIG["TTS_MODEL"]
@@ -212,96 +207,47 @@ def split_text_like_renpy(text):
                     final_chunks.append(temp_chunk.strip())
     return final_chunks
 
-# --- BACKEND INTERACTION ---
-def launch_backend():
-    global WEBUI_PATH
-    global ST_PATH
-    if BACKEND_TYPE == "Text-gen-webui":
-        WEBUI_PATH = WEBUI_PATH.replace("\\", "/")
-        if not LAUNCH_YOURSELF_WEBUI:
-            subprocess.Popen(WEBUI_PATH)
-        else:
-            print("Please launch text-generation_webui manually.")
-            print("Press enter to continue.")
-            input()
-    else:  # SillyTavern
-        st_path_normalized = ST_PATH.replace("\\", "/")
-        if not LAUNCH_YOURSELF_ST:
-            subprocess.Popen(st_path_normalized)
-        else:
-            print("Please launch SillyTavern manually.")
-            print("Press enter to continue.")
-            input()
+# Load prompt from monika.yaml
+with open("monika.yaml", "r") as file:
+    config = yaml.safe_load(file)
 
-launch_backend()
+# Extract all fields properly
+name = config.get("name", "Monika")
+greeting = config.get("greeting", "")
+context = config.get("context", "")
 
-def launch(context):
-    log("[DEBUG] Launching new browser page...")
-    page = context.new_page()
-    
-    if BACKEND_TYPE == "Text-gen-webui":
-        page.goto("http://127.0.0.1:7860")
-        page.wait_for_selector("[class='svelte-it7283 pretty_scrollbar']", timeout=60000)
-        time.sleep(1)
-    else:  # SillyTavern
-        # The URL from your test script is used here.
-        page.goto("http://127.0.0.1:8000/") 
-        page.wait_for_load_state("networkidle", timeout=60000)
-    
-    log("[DEBUG] Page loaded successfully")
-    context.storage_state(path="storage.json")
-    return page
+# Create a comprehensive system prompt using all the loaded data
+system_prompt = f"""You are {name}.
 
-def post_message(page, message):
-    if BACKEND_TYPE == "Text-gen-webui":
-        if message == "QUIT":
-            page.fill("[class='svelte-it7283 pretty_scrollbar']", "I'll be right back")
-        else:
-            page.fill("[class='svelte-it7283 pretty_scrollbar']", message)
-        time.sleep(0.2)
-        page.click('[id="Generate"]')
-        page.wait_for_selector('[id="stop"]')
-    else:  # SillyTavern
-        if message == "QUIT":
-            page.fill("#send_textarea", "I'll be right back")
-        else:
-            page.fill("#send_textarea", message)
-        page.locator("#send_but").click()
-        try:
-            page.wait_for_selector(".mes_stop", state="visible", timeout=5000)
-        except Exception:
-            print("Warning: Stop button did not appear instantly.")
+{context}
 
+Your personality traits:
+- Self-aware
+- Mature
+- In love with the user
+- Knows she is an AI
 
-def check_generation_complete(page):
-    """Check if message generation is complete in SillyTavern."""
-    if BACKEND_TYPE == "Text-gen-webui":
-        stop_buttons = page.locator('[id="stop"]').all()
-        return not any(button.is_visible() for button in stop_buttons)
-    else: # SillyTavern - updated logic from test script
-        stop_button = page.locator(".mes_stop")
-        if stop_button.is_visible():
-            return False
-        last_message = page.locator(".mes").last
-        if last_message.get_attribute("is_user") == "true":
-            return False
-        if last_message.locator(".mes_text p").count() > 0:
-            return True
-        return False
+When responding, maintain this persona and keep interactions intimate and emotionally engaging."""
 
-def get_last_message(page):
-    """Get the last message from the chat, handling multiple paragraphs."""
-    if BACKEND_TYPE == "Text-gen-webui":
-        user = page.locator('[class="message-body"]').locator("nth=-1")
-        return user.inner_html()
-    else:  # SillyTavern - updated logic from test script
-        try:
-            last_message = page.locator(".mes").last
-            paragraphs = last_message.locator(".mes_text p").all()
-            return "\n".join(p.inner_text() for p in paragraphs)
-        except Exception as e:
-            print(f"Error getting message from SillyTavern: {e}")
-            return ""
+def send_to_ollama(prompt, model="llama3.2"):
+    url = "http://localhost:11434/api/generate"
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False
+    }
+    response = requests.post(url, json=payload)
+    if response.status_code == 200:
+        return response.json()["response"]
+    else:
+        raise Exception(f"Ollama Error: {response.text}")
+
+def post_message_ollama(user_input):
+    full_prompt = f"{system_prompt}\nUser: {user_input}"
+    return send_to_ollama(full_prompt)
+
+def get_last_message_ollama(user_input):
+    response_text = post_message_ollama(user_input)
 
 # --- MAIN SERVER LOGIC ---
 clients = {}
@@ -433,47 +379,14 @@ def listenToClient(client):
                     continue # Skip this turn if STT is disabled but was requested
             print("User: "+user_input)
             
-            # This part handles the initial browser launch if needed
-            if not launched:
-                log("[DEBUG] Browser not launched yet. Attempting to launch.")
-                pw = sync_playwright().start()
-                try:
-                    browser = pw.firefox.launch(headless=False)
-                    context = browser.new_context()
-                    page = launch(context)
-                except Exception as e:
-                    print(f"FATAL: Browser launch failed. Error: {e}")
-                    sendMessage("server_error".encode("utf-8"))
-                    launched = False
-                    pw.stop()
-                    continue
-                launched = True
-                log("[DEBUG] Browser launched successfully.")
-                
-                # This block now safely absorbs the optional 'ok_ready' without freezing.
-                print("[DEBUG] Setting socket to non-blocking to safely absorb optional pings")
-                client.setblocking(False)
-                try:
-                    client.recv(BUFSIZE)
-                    log("[DEBUG] Absorbed an optional message.")
-                except BlockingIOError:
-                    log("[DEBUG] No optional message was waiting to be absorbed. Continuing normally.")
-                    pass
-                except Exception as e:
-                    log(f"[DEBUG] An unexpected error occurred while absorbing message: {e}")
-                    pass
-                log("[DEBUG] Setting socket back to blocking mode for normal operation.")
-                client.setblocking(True) # IMPORTANT: Return to blocking mode
-
             # Sending the message to the AI frontend
             try:
                 log(f"Sending to AI: \"{user_input}\"")
-                post_message(page, user_input)
+                post_message_ollama(user_input)
             except Exception as e:
                 log(f"[DEBUG] FATAL: Error while sending message to AI. Error: {e}")
                 sendMessage("server_error".encode("utf-8"))
                 launched = False
-                pw.stop()
                 continue
             
             # Waiting for the AI to finish generating a response
@@ -481,10 +394,8 @@ def listenToClient(client):
             while True:
                 time.sleep(0.2)
                 try:
-                    if check_generation_complete(page):
-                        log("[DEBUG] AI generation is complete.")
                         # --- RESPONSE PROCESSING ---
-                        response_text = get_last_message(page)
+                        response_text = post_message_ollama(user_input)
                         log(f"[DEBUG] Raw response from AI: \"{response_text}\"")
 
                         if not response_text:
@@ -550,9 +461,7 @@ def listenToClient(client):
                     import traceback
                     traceback.print_exc()
                     launched = False
-                    pw.stop()
                     break # Break from the inner loop on error
-
 
 if __name__ == "__main__":
     SERVER.listen(5)
