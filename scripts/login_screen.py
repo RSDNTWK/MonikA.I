@@ -32,13 +32,14 @@ def load_from_json(variable, entry):
         pass
 
 def get_input():
-    global GAME_PATH, USE_TTS, LAUNCH_YOURSELF
+    global GAME_PATH, USE_TTS, LAUNCH_YOURSELF, OLLAMA_MODEL
     global USE_ACTIONS, USE_EMOTIONS, TTS_MODEL, USE_SPEECH_RECOGNITION
     global VOICE_SAMPLE_TORTOISE, VOICE_SAMPLE_COQUI
     
     USE_TTS = use_tts.get()
     GAME_PATH = game_path.get()
     LAUNCH_YOURSELF = launch_yourself.get()
+    OLLAMA_MODEL = ollama_model.get()
     USE_ACTIONS = use_actions.get()
     USE_EMOTIONS = use_emotions.get() # Capture the new value
     TTS_MODEL = tts_model.get()
@@ -71,6 +72,7 @@ aspect_params = {
 use_tts = tk.StringVar()
 game_path = tk.StringVar()
 launch_yourself = tk.StringVar()
+ollama_model = tk.StringVar()
 use_actions = tk.StringVar()
 use_emotions = tk.StringVar() # Variable for the new option
 tts_model = tk.StringVar()
@@ -80,6 +82,7 @@ voice_sample_coqui = tk.StringVar()
 
 # General Settings Labels and Inputs
 tk.Label(other_frame, text="Game Path", bg=menu_background_pink, fg='white', font=bold_font).grid(row=1, column=0)
+tk.Label(other_frame, text="Ollama Model", bg=menu_background_pink, fg='white', font=bold_font).grid(row=2, column=0)
 tk.Label(other_frame, text="Launch Yourself", bg=menu_background_pink, fg='white', font=bold_font).grid(row=1, column=3)
 tk.Label(other_frame, text="Use Actions", bg=menu_background_pink, fg='white', font=bold_font).grid(row=3, column=0)
 tk.Label(other_frame, text="Use Emotions", bg=menu_background_pink, fg='white', font=bold_font).grid(row=4, column=0) # New Label
@@ -110,6 +113,11 @@ game_path_entry = tk.Entry(other_frame, textvariable=game_path, width=25, bg=dok
 game_path_entry.grid(row=1, column=1)
 
 load_from_json("GAME_PATH", game_path_entry)
+
+ollama_model_entry = tk.Entry(other_frame, textvariable=ollama_model, width=25, bg=doki_white, fg='black')
+ollama_model_entry.grid(row=2, column=1)
+
+load_from_json("OLLAMA_MODEL", ollama_model_entry)
 
 tts_menu = tk.OptionMenu(other_frame, tts_model, "Your TTS", "XTTS", "Tortoise TTS")
 tts_menu.config(bg=doki_white, fg='black')
@@ -159,6 +167,7 @@ else:
         config = json.load(f)
     # Load existing settings
     GAME_PATH = config.get("GAME_PATH", "")
+    OLLAMA_MODEL = config.get("OLLAMA_MODEL", "")
     USE_TTS = config.get("USE_TTS", False)
     LAUNCH_YOURSELF = config.get("LAUNCH_YOURSELF", False)
     USE_ACTIONS = config.get("USE_ACTIONS", False)
@@ -193,6 +202,7 @@ USE_SPEECH_RECOGNITION = int(eval(str(USE_SPEECH_RECOGNITION)))
 
 CONFIG = {
     "GAME_PATH": GAME_PATH,
+    "OLLAMA_MODEL": OLLAMA_MODEL,
     "USE_TTS": USE_TTS,
     "LAUNCH_YOURSELF": LAUNCH_YOURSELF,
     "USE_ACTIONS": USE_ACTIONS,

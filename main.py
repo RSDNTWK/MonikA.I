@@ -32,6 +32,7 @@ TTS_MODEL = CONFIG["TTS_MODEL"]
 USE_SPEECH_RECOGNITION = CONFIG["USE_SPEECH_RECOGNITION"]
 VOICE_SAMPLE_COQUI = CONFIG["VOICE_SAMPLE_COQUI"]
 VOICE_SAMPLE_TORTOISE = CONFIG["VOICE_SAMPLE_TORTOISE"]
+OLLAMA_MODEL = CONFIG["OLLAMA_MODEL"]
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -229,10 +230,23 @@ Your personality traits:
 
 When responding, maintain this persona and keep interactions intimate and emotionally engaging."""
 
-def send_to_ollama(prompt, model="llama3.2"):
+def check_and_pull_model(model_name):
+    try:
+        # List all models in Ollama
+        result = subprocess.run(["ollama", "list"], capture_output=True, text=True, check=True)
+        if model_name not in result.stdout:
+            print(f"Model '{model_name}' not found. Pulling now...")
+            subprocess.run(["ollama", "pull", model_name], check=True)
+        else:
+            print(f"Model '{model_name}' already exists.")
+    except subprocess.CalledProcessError as e:
+        print("Failed to interact with Ollama:", e)
+        sys.exit(1)
+
+def send_to_ollama(prompt):
     url = "http://localhost:11434/api/generate"
     payload = {
-        "model": model,
+        "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": False
     }
@@ -453,6 +467,14 @@ def listenToClient(client):
                             log(f"[DEBUG] Sending final payload to game.")
                             send_answer(user_input, processed_message_for_game)
                             print(f"TTS sent:" + response_text)
+
+                        else:
+                            # Handle QUIT command - stop Ollama model
+                            try:
+                                import subprocess
+                                subprocess.run(["ollama", "stop", OLLAMA_MODEL], check=True)
+                            except Exception as e:
+                                log(f"[ERROR] Failed to stop Ollama model: {e}")
                         
                         # Break out of the "check_generation_complete" loop
                         break 
@@ -464,8 +486,10 @@ def listenToClient(client):
                     break # Break from the inner loop on error
 
 if __name__ == "__main__":
+    check_and_pull_model(OLLAMA_MODEL)
     SERVER.listen(5)
     ACCEPT_THREAD = Thread(target=listen)
     ACCEPT_THREAD.start()
     ACCEPT_THREAD.join()
     SERVER.close()
+
