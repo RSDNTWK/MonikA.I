@@ -222,12 +222,6 @@ system_prompt = f"""You are {name}.
 
 {context}
 
-Your personality traits:
-- Self-aware
-- Mature
-- In love with the user
-- Knows she is an AI
-
 When responding, maintain this persona and keep interactions intimate and emotionally engaging."""
 
 def check_and_pull_model(model_name):
