@@ -220,6 +220,8 @@ context = config.get("context", "")
 # Create a comprehensive system prompt using all the loaded data
 system_prompt = f"""You are {name}.
 
+You should greet the player with {greeting}.
+
 {context}
 
 When responding, maintain this persona and keep interactions intimate and emotionally engaging."""
@@ -251,8 +253,19 @@ def send_to_ollama(prompt):
         raise Exception(f"Ollama Error: {response.text}")
 
 def post_message_ollama(user_input):
-    full_prompt = f"{system_prompt}\nUser: {user_input}"
-    return send_to_ollama(full_prompt)
+    # Check if the user wants to quit
+    if user_input.strip().upper() == "QUIT":
+        try:
+            subprocess.run(["ollama", "stop", OLLAMA_MODEL], check=True)
+            log("[DEBUG] Ollama stopped successfully")
+        except Exception as e:
+            log(f"[DEBUG] Error stopping ollama: {e}")
+        
+    # Continue with normal processing if not quitting
+    if user_input != "":
+        full_prompt = f"{system_prompt}\nUser: {user_input}"
+        return send_to_ollama(full_prompt)
+
 
 def get_last_message_ollama(user_input):
     response_text = post_message_ollama(user_input)
@@ -462,14 +475,6 @@ def listenToClient(client):
                             send_answer(user_input, processed_message_for_game)
                             print(f"TTS sent:" + response_text)
 
-                        else:
-                            # Handle QUIT command - stop Ollama model
-                            try:
-                                import subprocess
-                                subprocess.run(["ollama", "stop", OLLAMA_MODEL], check=True)
-                            except Exception as e:
-                                log(f"[ERROR] Failed to stop Ollama model: {e}")
-                        
                         # Break out of the "check_generation_complete" loop
                         break 
                 except Exception as e:
